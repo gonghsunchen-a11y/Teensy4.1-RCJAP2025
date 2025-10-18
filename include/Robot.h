@@ -144,15 +144,15 @@ void readBNO085Yaw() {
 
     // Compare with buffer[18]
     if (esti_checksum != buffer[18]) {
-      Serial.println("Checksum error");
+      //Serial.println("Checksum error");
       continue;
     }
 
     // --- Extract yaw (Little Endian) ---
     int16_t yaw_raw = (int16_t)((buffer[4] << 8) | buffer[3]);
 
-    Serial.print("yaw_raw: ");
-    Serial.println(yaw_raw);
+    //Serial.print("yaw_raw: ");
+    //Serial.println(yaw_raw);
 
     // Convert to degrees if within range
     if (abs(yaw_raw) <= 18000) {
@@ -165,31 +165,32 @@ void readBNO085Yaw() {
 }
 
 
-void ballsensor(){
-  uint8_t buffer_index = 0;
-  uint8_t buffer[3];
+void ballsensor() {
+  uint8_t b[3];
   ballData.valid = false;
-  while (Serial4.available()){
-    uint8_t b = Serial4.read();
-    if(b == 0xFF){
+
+  // 先發送請求指令
+  Serial4.write(0xBB);
+  while(!Serial4.available());
+    Serial4.readBytes(b, 3);
+    // Serial.println(b[1], HEX);
+      
+    // 感測器沒偵測到球
+    if (b[1] == 0xFF) {  
       ballData.valid = false;
       ballData.dir = 255;
       ballData.dis = 255;
-      break;
     }
-    if ((buffer_index == 0 && b != 0xAA)) continue; // wait for start
-    buffer[buffer_index++] = b;
-    if (buffer_index == 3) {
-      buffer_index = 0;
-      if (buffer[0] == 0xAA && buffer[2] == 0xEE) {
-        uint8_t temp = buffer[1];
-        ballData.valid = true;
-        ballData.dir = (temp & 0x0F);
-        ballData.dis = (temp & 0xF0) >> 4;
-      }
+    // 正確封包
+    else if (b[0] == 0xAA && b[2] == 0xEE) {
+      uint8_t temp = b[1];
+      ballData.valid = true;
+      ballData.dir = (temp & 0x0F);         // 低4位: 方向
+      ballData.dis = (temp & 0xF0) >> 4;    // 高4位: 距離
     }
-  }
 }
+
+
 
 void linesensor(){
   uint8_t buffer_index = 0;
