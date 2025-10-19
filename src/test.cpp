@@ -4,6 +4,11 @@ void setup(){
     Robot_Init();
 }
 void loop(){
+    linesensor();
+    Serial.println(lineData.state,BIN);
+    delay(500);
+}
+/*void loop(){
     readBNO085Yaw();
     ballsensor();
     Serial.print("dir");
@@ -30,4 +35,4 @@ void loop(){
         
     }
 
-}
+}*/

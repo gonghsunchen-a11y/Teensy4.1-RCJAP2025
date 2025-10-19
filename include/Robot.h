@@ -50,7 +50,7 @@ enum robotState {BALL_SEARCH, OFFENSE, DEFENSE, AVOID_LINE, IDLE};
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 struct GyroData {float heading = 0.0; bool valid = false;} gyroData;
-struct LineData {uint32_t state = 0xFFFF; bool valid = false;} lineData;
+struct LineData {uint32_t state = 0xFFFFFFFF; bool valid = false;} lineData;
 struct BallData {uint8_t dis = 255; uint8_t dir = 255; bool valid = false;} ballData;
 struct PosData {int8_t x = 0; int8_t y = 0;} position;
 
@@ -191,25 +191,24 @@ void ballsensor() {
 }
 
 
-
+ 
 void linesensor(){
-  uint8_t buffer_index = 0;
   uint8_t buffer[7];
+  Serial5.write(0xdd);
+
+  while(!Serial5.available());
+  Serial5.readBytes(buffer,7);
+    // Serial.println(b[1], HEX);
+    
   lineData.valid = false;
-  while (Serial5.available()) {
-    uint8_t b = Serial5.read();
-    if (buffer_index == 0 && b != 0xAA) return; // wait for start
-    buffer[buffer_index++] = b;
-    if (buffer_index == 7) {
-      buffer_index = 0;
+
+  if (buffer[0] != 0xaa) return;
       // Corrected original logic for safety (removed redundant buffer[0] check)
-      if (buffer[0] == 0xAA && buffer[6] == 0xEE) { 
-        uint8_t checksum = (buffer[2] + buffer[3] + buffer[4]) & 0xFF;
-        if (checksum == buffer[5]) {
-            lineData.valid = true;
-            lineData.state = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
-        }
-      }
+  if (buffer[0] == 0xAA && buffer[6] == 0xEE) { 
+    uint8_t checksum = (buffer[2] + buffer[3] + buffer[4]) & 0xFF;
+    if (checksum == buffer[5]) {
+        lineData.valid = true;
+        lineData.state = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
     }
   }
 }
