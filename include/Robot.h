@@ -13,8 +13,7 @@ enum robotState {BALL_SEARCH, OFFENSE, DEFENSE, AVOID_LINE, IDLE};
 #define TOTAL_BALL_SENSORS 10
 
 //ROBOT MAX SPEED
-#define MAX_V 30
-
+#define MAX_V 50
 // --- MATH CONSTANTS & CONTROL PARAMETERS ---
 #define DtoR_const (M_PI / 180.0) // Degrees to Radians conversion factor
 
