@@ -14,7 +14,7 @@ enum robotState {BALL_SEARCH, OFFENSE, DEFENSE, AVOID_LINE, IDLE};
 
 //ROBOT MAX SPEED
 #define MAX_V 50
-#define MAX_VX 60
+#define MAX_VX 50
 #define MAX_VY 40
 #define RtoD_const 57.2958
 

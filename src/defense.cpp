@@ -78,6 +78,13 @@ float lineDegree = atan2(sumY, sumX) * RtoD_const;
 if (lineDegree < 0) {
     lineDegree += 360; 
 }
+if(lineDegree<45||lineDegree>315){
+    vx = vx * 0.5;
+}
+if(lineDegree<135&&lineDegree>225){
+    vx = vx * 0.5;
+}
+
 bool lefttouch= false;
 bool righttouch= false;
 bool backtouch= false;
@@ -123,7 +130,7 @@ else if(!((lineData.state >> 1) & 1 )|| !((lineData.state >> 7) & 1)){
     vy = MAX_VY*0.55;
 }
 else if(!((lineData.state >> 0) & 1 )|| !((lineData.state >> 8) & 1)){
-    vy = MAX_VY*0.5;
+    vy = MAX_VY*0.25;
 }
 
 if(!((lineData.state >> 13) & 1)){
@@ -139,7 +146,7 @@ else if(!((lineData.state >> 10) & 1 )|| !((lineData.state >> 16) & 1)){
     vy = -MAX_VY*0.55;
 }
 else if(!((lineData.state >> 9) & 1 )|| !((lineData.state >> 17) & 1)){
-    vy = -MAX_VY*0.5;
+    vy = -MAX_VY*0.25;
 }
 
 if(!backtouch && lefttouch && righttouch){
@@ -150,7 +157,7 @@ else if(!backtouch && !lefttouch && righttouch){
         vx=0;
     }
     if(vy<0){
-        if(fabs(lineDegree-270) >= 40){
+        if(fabs(lineDegree-270) >= 10){
            Serial.println("lock");
             vy=0;
         }
@@ -158,12 +165,12 @@ else if(!backtouch && !lefttouch && righttouch){
     Serial.println("b1");
 }
 else if(backtouch && !lefttouch && righttouch){
-    vx=30;
+    vx=50;
     if(vy<0){
-        if(fabs(lineDegree-270) >= 40){
-            Serial.println("lock");
+        //if(fabs(lineDegree-270) >= 20){
+            //Serial.println("lock");
             vy=0;
-        }
+        //}
     }
     Serial.println("c1");
 }
@@ -176,7 +183,7 @@ else if(!backtouch && lefttouch && !righttouch){
         vx=0;
     }
     if(vy<0){
-        if(fabs(lineDegree-270) >= 40){
+        if(fabs(lineDegree-270) >= 10){
             Serial.println("lock");
             vy=0;
         }
@@ -184,19 +191,18 @@ else if(!backtouch && lefttouch && !righttouch){
     Serial.println("b2");
 }
 else if(backtouch && lefttouch && !righttouch){
-    vx=-30;
+    vx=-50;
     if(vy<0){
-        if(fabs(lineDegree-270) >= 40){
-            Serial.println("lock");
+        //if(fabs(lineDegree-270) >= 20){
+            //Serial.println("lock");
             vy=0;
-        }
+        //}
     }
     Serial.println("c2");
 }
-Serial.println(lineDegree);
-
-Serial.printf("y=%d\n",vy);
 Vector_Motion(vx,vy);
+Serial.println(lineDegree);
+Serial.printf("y=%d\n",vy);
 Serial.println(vy);
 Serial.println(lineData.state,BIN);
 } 
