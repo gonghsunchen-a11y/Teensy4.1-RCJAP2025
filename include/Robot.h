@@ -13,7 +13,15 @@ enum robotState {BALL_SEARCH, OFFENSE, DEFENSE, AVOID_LINE, IDLE};
 #define TOTAL_BALL_SENSORS 10
 
 //ROBOT MAX SPEED
-#define MAX_V 30
+#define MAX_V 50
+#define MAX_VX 60
+#define MAX_VY 40
+#define RtoD_const 57.2958
+
+float linesensorDegreelist[18]={
+  10,30,50,70,90,110,130,150,170,190,210,230,250,270,290,310,330
+};
+
 // --- MATH CONSTANTS & CONTROL PARAMETERS ---
 #define DtoR_const (M_PI / 180.0) // Degrees to Radians conversion factor
 
@@ -111,6 +119,9 @@ void Robot_Init(){
   pinMode(DIRA_4,OUTPUT);
   pinMode(DIRB_4,OUTPUT);
 
+  pinMode(BUTTON_LEFT,INPUT_PULLUP);
+  pinMode(BUTTON_RIGHT,INPUT_PULLUP);
+
   Wire.begin();
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) while(1);
   display.clearDisplay();
@@ -202,12 +213,13 @@ void linesensor(){
   lineData.valid = false;
 
   if (buffer[0] != 0xaa) return;
+
       // Corrected original logic for safety (removed redundant buffer[0] check)
   if (buffer[0] == 0xAA && buffer[6] == 0xEE) { 
-    uint8_t checksum = (buffer[2] + buffer[3] + buffer[4]) & 0xFF;
+    uint8_t checksum = (buffer[1] + buffer[2] + buffer[3]+ buffer[4]) & 0xFF;
     if (checksum == buffer[5]) {
         lineData.valid = true;
-        lineData.state = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
+        lineData.state = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16) |  (buffer[4] << 24);
     }
   }
 }
