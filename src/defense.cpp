@@ -15,16 +15,60 @@ volatile bool centerTouch = false;
 volatile bool leftUnTouch   = false;
 volatile bool rightUnTouch  = false;
 
+int front = A13;
+int back  = A8;
+int left  = A12;
+int right = A14;
+#define MAX_RANG 520.0       
+#define ADC_SOLUTION 1023.0 
+#define N 5
+float front_buf[N]={0}, back_buf[N]={0}, left_buf[N]={0}, right_buf[N]={0};
+int ultrasonic_count=0;
+float dist_f=0, dist_b=0, dist_l=0, dist_r=0;
+
+float back_safe = 30;   
+float side_safe = 45;  
+
 void setup(){
 Robot_Init();
     attachInterrupt(digitalPinToInterrupt(Pin), stop, RISING);
     attachInterrupt(digitalPinToInterrupt(Pin1), stop1, FALLING);
     attachInterrupt(digitalPinToInterrupt(Pin2), stop2, FALLING);
+    pinMode(front, INPUT);
+    pinMode(back, INPUT);
+    pinMode(left, INPUT);
+    pinMode(right, INPUT);
 }
 void loop(){
 readBNO085Yaw();
 ballsensor();
 linesensor();
+float f = analogRead(front)*MAX_RANG/ADC_SOLUTION;
+float b = analogRead(back) *MAX_RANG/ADC_SOLUTION;
+float l = analogRead(left) *MAX_RANG/ADC_SOLUTION;
+float r = analogRead(right)*MAX_RANG/ADC_SOLUTION;
+front_buf[ultrasonic_count] = f;
+back_buf[ultrasonic_count]  = b;
+left_buf[ultrasonic_count]  = l;
+right_buf[ultrasonic_count] = r;
+ultrasonic_count++;
+
+if(ultrasonic_count >= N){
+    dist_f = dist_b = dist_l = dist_r = 0;
+    for(int i=0;i<N;i++){
+        dist_f += front_buf[i];
+        dist_b += back_buf[i];
+        dist_l += left_buf[i];
+        dist_r += right_buf[i];
+    }
+    dist_f /= N;
+    dist_b /= N;
+    dist_l /= N;
+    dist_r /= N;
+    ultrasonic_count=0;
+}
+
+
 if(ballData.dis!=255){
 int speed=0;
 speed=map(ballData.dis,0,12,20,MAX_VX);
@@ -200,6 +244,31 @@ else if(backtouch && lefttouch && !righttouch){
     }
     Serial.println("c2");
 }
+
+if(dist_b < back_safe && vy < 0){
+    vy = 0;
+}
+
+
+if(dist_l < side_safe && vx < 0){
+    vx = 0;
+}
+
+
+if(dist_r < side_safe && vx > 0){
+    vx = 0;
+}
+
+// 左右超出保護
+if(dist_l < side_safe){       // 左側太靠近邊界
+    vx = fabs(vx);             // 向右回到安全範圍
+}
+
+if(dist_r < side_safe){       // 右側太靠近邊界
+    vx = -fabs(vx);            // 向左回到安全範圍
+}
+
+
 Vector_Motion(vx,vy);
 Serial.println(lineDegree);
 Serial.printf("y=%d\n",vy);
