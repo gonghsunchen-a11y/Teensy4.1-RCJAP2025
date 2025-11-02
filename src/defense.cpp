@@ -274,9 +274,6 @@ float dist_f=0, dist_b=0, dist_l=0, dist_r=0;
 float back_safe = 30;   
 float side_safe = 45;  
 
-// --- 使用 Robot.h 的 linesensorDegreelist，不要重複定義 ---
-// extern float linesensorDegreelist[18]; // Robot.h 已定義
-
 void setup(){
     Robot_Init();
     attachInterrupt(digitalPinToInterrupt(Pin), stop, RISING);
@@ -286,6 +283,10 @@ void setup(){
     pinMode(back, INPUT);
     pinMode(left, INPUT);
     pinMode(right, INPUT);
+
+    // 初始化距離，避免開機立即衝
+    dist_f = dist_b = back_safe;
+    dist_l = dist_r = side_safe;
 }
 
 void loop(){
@@ -293,6 +294,7 @@ void loop(){
     ballsensor();
     linesensor();
 
+    // --- 濾波超聲波 ---
     float f = analogRead(front)*MAX_RANG/ADC_SOLUTION;
     float b = analogRead(back) *MAX_RANG/ADC_SOLUTION;
     float l = analogRead(left) *MAX_RANG/ADC_SOLUTION;
@@ -319,23 +321,25 @@ void loop(){
         ultrasonic_count=0;
     }
 
-    if(ballData.dis!=255){
-        int speed=0;
-        speed=map(ballData.dis,0,12,20,MAX_VX);
+    // --- 球控制 ---
+    bool ball_detected = (ballData.dis != 255);
+    if(ball_detected && ballData.dis <= 7){
         ball_degree = ball[ballData.dir];
-        if(ball_degree<90 || ball_degree>270){
-            vx=speed;
-        }
-        if(ball_degree>90 && ball_degree<270){
-            vx=-speed;
-        }
-        if(ball_degree==90){
-            vx=0;
+
+        // 左右安全距離檢查，如果左右小於55就不要追球
+        if(dist_l >= 55 && dist_r >= 55){
+            int speed = map(ballData.dis,0,12,20,MAX_VX);
+            if(ball_degree<90 || ball_degree>270) vx=speed;
+            else if(ball_degree>90 && ball_degree<270) vx=-speed;
+            else vx=0;
+        } else {
+            vx = 0; // 左右太近，不追球
         }
     } else {
-        vx=0;
+        vx = 0; // 沒球或距離>7 → 回中心模式
     }
 
+    // --- 線感與角度 ---
     float sumX = 0, sumY = 0;
     uint8_t count = 0;
     for (int i = 0; i < 18; i++) {
@@ -351,14 +355,34 @@ void loop(){
     float lineDegree = atan2(sumY, sumX) * RtoD_const;
     if (lineDegree < 0) lineDegree += 360;
 
-    if(lineDegree<45||lineDegree>315) vx = vx * 0.5;
-    if(lineDegree<135&&lineDegree>225) vx = vx * 0.5;
+    if(lineDegree<45||lineDegree>315) vx *= 0.5;
+    if(lineDegree<135&&lineDegree>225) vx *= 0.5;
 
-    if(analogRead(Pin)>800) backtouch = true; else backtouch= false;
-    if(analogRead(Pin1)>700) lefttouch = true; else lefttouch = false;
-    if(analogRead(Pin2)>740) righttouch = true; else righttouch = false;
+    // --- 碰觸感測 ---
+    if(analogRead(Pin)>520) backtouch = true; else backtouch= false;
+    if(analogRead(Pin1)>150) lefttouch = true; else lefttouch = false;
+    if(analogRead(Pin2)>400) righttouch = true; else righttouch = false;
 
-    // 綫感控制 vy
+    // --- 回中心模式 (沒球或距離>10)
+    if(!ball_detected || ballData.dis > 10){
+        float diff_b = dist_b - back_safe;   // 前後偏差
+        float diff_lr = dist_l - dist_r;     // 左右偏差
+
+        // 前後維持28~35
+        if(dist_b < 28) vy = constrain(map(28 - dist_b,0,60,20,50),20,50);
+        else if(dist_b > 35) vy = -constrain(map(dist_b - 32,0,60,20,50),20,50);
+        else vy = 0;
+
+        // 左右維持兩邊相等
+        if(fabs(diff_lr) > 3){
+            if(diff_lr < 0) vx = constrain(map(fabs(diff_lr),0,60,20,50),20,50);
+            else vx = -constrain(map(fabs(diff_lr),0,60,20,50),20,50);
+        } else {
+            vx = 0;
+        }
+    }
+
+    // --- 綫感控制 vy（角落修正） ---
     if(!((lineData.state >> 4) & 1)) vy = MAX_VY;
     else if(!((lineData.state >> 3) & 1) || !((lineData.state >> 5) & 1)) vy = MAX_VY*0.8;
     else if(!((lineData.state >> 2) & 1) || !((lineData.state >> 6) & 1)) vy = MAX_VY*0.7;
@@ -373,29 +397,22 @@ void loop(){
 
     // 左右碰觸保護
     if(!backtouch && lefttouch && righttouch) Serial.println("a1");
-    else if(!backtouch && !lefttouch && righttouch){ if(vx<0) vx=0; if(vy<0 && fabs(lineDegree-270) >= 10) vy=0; Serial.println("b1"); }
     else if(backtouch && !lefttouch && righttouch){ vx=50; if(vy<0) vy=0; Serial.println("c1"); }
-
     if(!backtouch && lefttouch && righttouch) Serial.println("a2");
-    else if(!backtouch && lefttouch && !righttouch){ if(vx>0) vx=0; if(vy<0 && fabs(lineDegree-270) >= 10) vy=0; Serial.println("b2"); }
     else if(backtouch && lefttouch && !righttouch){ vx=-50; if(vy<0) vy=0; Serial.println("c2"); }
-
-    // 前後安全距離控制
-    if(dist_b < back_safe){ vy = back_safe - dist_b; if(vy < 15 && vy > 0) vy = 15; }
-    if(dist_b > back_safe+10){ vy = (back_safe - dist_b); if(vy > -15 && vy < 0) vy = -15; }
-
-    // 左右安全距離控制
-    if(dist_l < side_safe) vx = fabs(vx);
-    if(dist_r < side_safe) vx = -fabs(vx);
 
     Vector_Motion(vx,vy);
 
-    Serial.println(lineDegree);
-    Serial.printf("y=%d\n",vy);
-    Serial.println(vy);
-    Serial.println(lineData.state,BIN);
-} 
+    // --- 除錯輸出 ---
+    Serial.print("vx=");Serial.print(vx);
+    Serial.print("\tvy=");Serial.print(vy);
+    Serial.print("\tdist_b=");Serial.print(dist_b);
+    Serial.print("\tdist_l=");Serial.print(dist_l);
+    Serial.print("\tdist_r=");Serial.println(dist_r);
+}
 
 void stop(){ centerTouch = true; }
 void stop1(){ leftUnTouch = true; }
 void stop2(){ rightUnTouch = true; }
+
+

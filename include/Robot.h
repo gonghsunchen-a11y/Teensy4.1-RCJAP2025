@@ -13,9 +13,9 @@ enum robotState {BALL_SEARCH, OFFENSE, DEFENSE, AVOID_LINE, IDLE};
 #define TOTAL_BALL_SENSORS 10
 
 //ROBOT MAX SPEED
-#define MAX_V 50
+#define MAX_V 25
 #define MAX_VX 50
-#define MAX_VY 40
+#define MAX_VY 50
 #define RtoD_const 57.2958
 
 float linesensorDegreelist[18]={
