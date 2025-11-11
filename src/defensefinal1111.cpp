@@ -46,7 +46,7 @@ void offense();
 void defense();
 void line_processing();
 void attack();
-
+void white_line_processing();
 
 void setup(){
   Robot_Init();
@@ -254,6 +254,9 @@ void defense(){
         }
         //white_line_processing();
     }
+    else if(far_away && (at_left_side || at_right_side) && online){
+        white_line_processing();
+    }
     else{
         Serial.println("defense");
         float leftSumX = 0, leftSumY = 0;
@@ -429,4 +432,78 @@ void defense(){
     control.vy = constrain(control.vy, -MAX_VY, MAX_VY);
     Serial.printf("vx = %d, vy = %d\n", control.vx, control.vy);
     Vector_Motion(control.vx, control.vy);
+}
+
+void white_line_processing(){
+    float sumX = 0, sumY = 0;
+    for(int i = 0; i < 18; i++){
+        bool detected =((lineData.state &(1UL << i)) == 0); // 0 表有線
+        // Serial.print("Sensor "); Serial.print(i);
+        // Serial.print(": "); Serial.println(detected ? "ON line" : "OFF line");
+        if(detected){
+        float deg = linesensorDegreelist[i];
+        sumX += cos(deg * DtoR_const);
+        sumY += sin(deg * DtoR_const);
+        count++;
+        }
+    }
+    count = 0;
+    if(lineData.state == 0b111111111111111111 && !overhalf && count > 0){ // no line
+        count = 0;
+        lineVx = 0;
+        lineVy = 0;
+        first_detect = false;
+        init_lineDegree = -1;
+    }
+    if(control.picked_up){
+        count = 0;
+        lineVx = 0;
+        lineVy = 0;
+        first_detect = !first_detect;
+        init_lineDegree = -1;
+        overhalf = !overhalf;
+    }
+    if(count > 0 || overhalf){
+        float lineDegree = atan2(sumY, sumX) * RtoD_const;
+        if(lineDegree < 0){
+        lineDegree += 360;
+        }
+        if(start){
+        showMessage("Line");
+        start = false;
+        }
+        // Serial.print("sumX="); Serial.print(sumX);
+        // Serial.print(", sumY="); Serial.print(sumY);
+        // Serial.print(", average lineDegree="); Serial.println(lineDegree);
+        if(first_detect == false){
+        init_lineDegree = lineDegree;
+        first_detect = true;
+        }
+
+        diff = fabs(fmod((lineDegree - init_lineDegree), 360));
+        float finalDegree;
+        if(diff > EMERGENCY_THRESHOLD){
+        overhalf = true;
+        finalDegree = lineDegree;
+        }
+        else{
+        overhalf = false;
+        finalDegree = fmod(lineDegree + 180, 360);
+        // delay(1000);
+        }
+        /*
+        Serial.print("lineDegree=");
+        Serial.println(lineDegree);
+        Serial.print("finalDegree=");
+        Serial.println(finalDegree);
+        Serial.print("first_detect");
+        Serial.println(first_detect);
+        */
+        float speed = 50;
+        lineVx = speed * cos(finalDegree * DtoR_const);
+        lineVy = speed * sin(finalDegree * DtoR_const);
+        Vector_Motion(int(lineVx), int(lineVy));
+        //Serial.print("lineVx="); Serial.print(lineVx);
+        //Serial.print("lineVy="); Serial.println(lineVy);
+    }
 }
