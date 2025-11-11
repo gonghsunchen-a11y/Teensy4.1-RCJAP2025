@@ -5,25 +5,28 @@
 #include <math.h> // Added for sin, cos, and fabs
 #include <stdbool.h> // Added for clarity
 
-//ROBOT STATES
-enum robotState {BALL_SEARCH, OFFENSE, DEFENSE, AVOID_LINE, IDLE};
+//Line Sensor
+#define EMERGENCY_THRESHOLD 80
 
 //BALL SEARCHING THRESHOLD
 #define BALL_Threshold 5
 #define TOTAL_BALL_SENSORS 10
 
 //ROBOT MAX SPEED
-#define MAX_V 25
-#define MAX_VX 50
-#define MAX_VY 50
-#define RtoD_const 57.2958
+#define MAX_V 40
 
-float linesensorDegreelist[18]={
-  10,30,50,70,90,110,130,150,170,190,210,230,250,270,290,310,330
-};
+//ROBOT DEFENSE PARAMETERS
+#define MAX_VX 40
+#define MAX_VY 40
+#define Def_offset 2.5
+#define Back_safe 40//cm far away from the wall
+#define Side_safe 45//cm 
+#define Back_limit 10 //too near
+#define Side_limit 45 
 
 // --- MATH CONSTANTS & CONTROL PARAMETERS ---
-#define DtoR_const (M_PI / 180.0) // Degrees to Radians conversion factor
+#define DtoR_const 0.0174529f
+#define RtoD_const 57.2958f
 
 // --- PIN DEFINITIONS ---
 #define BUTTON_LEFT  31
@@ -53,21 +56,51 @@ float linesensorDegreelist[18]={
 #define DIRA_4 6    // 方向控制腳1
 #define DIRB_4 9
 
+//US Sensor
+#define front_us A13
+#define back_us A8
+#define left_us A12
+#define right_us A14
+#define alpha 0.75
+float pos_x_f = 0.0;
+float pos_y_f = 0.0;
+
+//Outside Line Sensor
+#define back_ls 41     
+#define left_ls 40    
+#define right_ls 39 
+
+//Kicker
+#define Charge_Pin 33 //FET1
+#define Kicker_Pin 32 //FET2
+
+
+//Interrupt
+volatile bool backtouch = false;
+volatile bool lefttouch = false;
+volatile bool righttouch = false;
+
 // --- GLOBAL OBJECTS & STRUCTS ---
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-struct GyroData {float heading = 0.0; bool valid = false;} gyroData;
-struct LineData {uint32_t state = 0xFFFFFFFF; bool valid = false;} lineData;
-struct BallData {uint8_t dis = 255; uint8_t dir = 255; bool valid = false;} ballData;
-struct PosData {int8_t x = 0; int8_t y = 0;} position;
+struct GyroData{float heading = 0.0; float pitch = 0.0; bool valid = false;} gyroData;
+struct LineData{uint32_t state = 0x3FFFF; bool valid = false;} lineData;
+struct BallData{uint8_t dis = 255; uint8_t dir = 255; uint8_t possession = 255; bool valid = false;} ballData;
+struct USSensor{uint16_t dist_b = 0; uint16_t dist_l = 0; uint16_t dist_r = 0; } usData;
+struct CamData{uint16_t x = 65535;uint16_t y = 65535;uint16_t w = 65535;uint16_t h = 65535; bool valid = false;} targetData;
+
+float ballDegreelist[16]={22.5,45,67.5,87.5,92.5,112.5,135,157.5,202.5,225,247.5,265,275,292.5,315,337.5};
+float linesensorDegreelist[18]={10,30,50,70,90,110,130,150,170,190,210,230,250,270,290,310,330};
+int8_t linesensor_ver_cor[18]={1,2,3,4,5,4,3,2,1,-1,-2,-3,-4,-5,-4,-3,-2,-1};
 
 // --- ROBOT CONTROL STRUCT (New: For P-control state) ---
-struct RobotControl {
+struct RobotControl{
     float robot_heading = 90.0;        // Target heading
     float P_factor = 0.7;             // Proportional gain
     float heading_threshold = 10.0;     // Deadband (degrees)
     int8_t vx = 0;
     int8_t vy = 0;
+    bool picked_up = false;
 } control;
 
 
@@ -79,15 +112,20 @@ void ballsensor();
 void linesensor();
 void positionEst();
 void showStart();
+void showLine();
 void showRunScreen();
+void showMessage(const char* message, int textSize = 2, int x = 0, int y = 20);
 void showSensors(float gyro, int ball, int light);
 void SetMotorSpeed(uint8_t port, int8_t speed);
 void MotorStop();
 void RobotIKControl(int8_t vx, int8_t vy, float omega);
-
 void Vector_Motion(float Vx, float Vy);
 void Degree_Motion(float moving_degree, int8_t speed);
-
+void kicker_control(bool);
+bool white_line_processing();
+void backlstouch();
+void leftlstouch();
+void rightlstouch();
 
 // ******************************************************
 // --- FUNCTION IMPLEMENTATIONS (Existing & New) ---
@@ -119,130 +157,184 @@ void Robot_Init(){
   pinMode(DIRA_4,OUTPUT);
   pinMode(DIRB_4,OUTPUT);
 
-  pinMode(BUTTON_LEFT,INPUT_PULLUP);
-  pinMode(BUTTON_RIGHT,INPUT_PULLUP);
+  pinMode(BUTTON_LEFT, INPUT_PULLUP);
+  pinMode(BUTTON_RIGHT, INPUT_PULLUP);
+
+  pinMode(front_us, INPUT);
+  pinMode(back_us, INPUT);
+  pinMode(left_us, INPUT);
+  pinMode(right_us, INPUT);
+  
+  pinMode(Kicker_Pin, OUTPUT);
+  pinMode(Charge_Pin, OUTPUT);
+
+  digitalWrite(Kicker_Pin, LOW);
+  digitalWrite(Charge_Pin, LOW);
+
+  pinMode(back_ls, INPUT_PULLUP);
+  pinMode(left_ls, INPUT_PULLUP);
+  pinMode(right_ls, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(back_ls), backlstouch, RISING);
+  attachInterrupt(digitalPinToInterrupt(left_ls), leftlstouch, RISING);
+  attachInterrupt(digitalPinToInterrupt(right_ls), rightlstouch, RISING);
 
   Wire.begin();
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) while(1);
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
-  showStart();
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+  showMessage("start");
+  kicker_control(0);
+
 }
 
-void readBNO085Yaw() {
+void readBNO085Yaw(){
   const int PACKET_SIZE = 19;
   uint8_t buffer[PACKET_SIZE];
   gyroData.valid = false; // Reset flag before read attempt
 
-  while (Serial2.available() >= PACKET_SIZE) {
+  while (Serial2.available() >= PACKET_SIZE){
     buffer[0] = Serial2.read();
-    if (buffer[0] != 0xAA) continue;
+    if(buffer[0] != 0xAA) continue;
     buffer[1] = Serial2.read();
-    if (buffer[1] != 0xAA) continue;
+    if(buffer[1] != 0xAA) continue;
 
     // Read remaining 17 bytes
-    for (int i = 2; i < PACKET_SIZE; i++) {
+    for (int i = 2; i < PACKET_SIZE; i++){
       buffer[i] = Serial2.read();
     }
 
     // --- Checksum: sum of bytes [2..16], mod 256 ---
     uint8_t esti_checksum = 0;
-    for (int i = 2; i <= 16; i++) {
+    for (int i = 2; i <= 16; i++){
       esti_checksum += buffer[i];
     }
     esti_checksum %= 256;
 
     // Compare with buffer[18]
-    if (esti_checksum != buffer[18]) {
+    if(esti_checksum != buffer[18]){
       //Serial.println("Checksum error");
       continue;
     }
 
     // --- Extract yaw (Little Endian) ---
     int16_t yaw_raw = (int16_t)((buffer[4] << 8) | buffer[3]);
+    int16_t pitch_raw = (int16_t)((buffer[6] << 8) | buffer[5]);
 
     //Serial.print("yaw_raw: ");
     //Serial.println(yaw_raw);
 
     // Convert to degrees if within range
-    if (abs(yaw_raw) <= 18000) {
+    if(abs(yaw_raw) <= 18000){
       gyroData.heading = yaw_raw * 0.01f;
       gyroData.valid = true;
     }
-
+    
+    if(abs(pitch_raw) <= 18000){
+      gyroData.pitch = pitch_raw * 0.01f;
+    }
     break; // Process one packet per call
   }
 }
 
+void readCameraData(){
+  static uint8_t buffer[10];
+  uint8_t index = 0;
+  targetData.valid = false;
+  while (Serial3.available()){
+    uint8_t b = Serial3.read();
+    if(index == 0 && b != 0xCC){
+      continue;  // 等待開頭 0xCC
+    }
+    buffer[index++] = b;
+    if(index == 10){  // 收滿 10 bytes
+      if(buffer[0] == 0xCC && buffer[9] == 0xEE){
+        targetData.x = buffer[1] | (buffer[2] << 8);
+        targetData.y = buffer[3] | (buffer[4] << 8);
+        targetData.w = buffer[5] | (buffer[6] << 8);
+        targetData.h = buffer[7] | (buffer[8] << 8);
+        targetData.valid = true;  
+        if(targetData.x == 65535 || targetData.y == 65535 || targetData.w == 65535 || targetData.h == 65535){
+          targetData.valid = false;  
+        }            
+      }
+      index = 0;  // reset buffer
+    }
+  }
+}
 
-void ballsensor() {
-  uint8_t b[3];
+void ballsensor(){
+  // 發送請求封包，通知感測器回傳資料
+  uint8_t b[4];
   ballData.valid = false;
 
-  // 先發送請求指令
   Serial4.write(0xBB);
   while(!Serial4.available());
-    Serial4.readBytes(b, 3);
-    // Serial.println(b[1], HEX);
-      
-    // 感測器沒偵測到球
-    if (b[1] == 0xFF) {  
+  Serial4.readBytes(b,4);
+  if(b[1]==0xFF){
       ballData.valid = false;
       ballData.dir = 255;
       ballData.dis = 255;
-    }
-    // 正確封包
-    else if (b[0] == 0xAA && b[2] == 0xEE) {
-      uint8_t temp = b[1];
-      ballData.valid = true;
-      ballData.dir = (temp & 0x0F);         // 低4位: 方向
-      ballData.dis = (temp & 0xF0) >> 4;    // 高4位: 距離
-    }
+  }
+  else if(b[0]==0xAA){
+    uint8_t temp =b[1];
+    ballData.valid = true;
+    ballData.dir = (temp & 0x0F);
+    ballData.dis = (temp & 0xF0)>>4;
+    ballData.possession = (uint8_t)((1-alpha) * b[2] + ballData.possession * alpha);
+  }
+  else{
+    ballData.valid = false;
+  }
 }
 
-
- 
 void linesensor(){
   uint8_t buffer[7];
   Serial5.write(0xdd);
-
   while(!Serial5.available());
   Serial5.readBytes(buffer,7);
-    // Serial.println(b[1], HEX);
-    
   lineData.valid = false;
-
-  if (buffer[0] != 0xaa) return;
-
-      // Corrected original logic for safety (removed redundant buffer[0] check)
-  if (buffer[0] == 0xAA && buffer[6] == 0xEE) { 
-    uint8_t checksum = (buffer[1] + buffer[2] + buffer[3]+ buffer[4]) & 0xFF;
-    if (checksum == buffer[5]) {
-        lineData.valid = true;
-        lineData.state = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16) |  (buffer[4] << 24);
-    }
-  }
-}
-
-void positionEst(){
-  uint8_t buffer_index = 0;
-  uint8_t buffer[4];
-  ballData.valid = false;
-  while (Serial3.available()){
-    uint8_t b = Serial3.read();
-    if ((buffer_index == 0 && b != 0xAA)) return; // wait for start
-    buffer[buffer_index++] = b;
-    if (buffer_index == 4) {
-      buffer_index = 0;
-      if (buffer[0] == 0xAA && buffer[3] == 0xEE) {
-        position.x = buffer[1] - 127;
-        position.y = buffer[2] - 127;
+  if(buffer[0] != 0xaa) return;
+  if(buffer[0] == 0xAA && buffer[6] == 0xEE){
+    uint8_t checksum = (buffer[1] + buffer[2] + buffer[3] + buffer[4]) & 0xFF;
+    if(checksum == buffer[5]){
+      lineData.valid = true;
+      lineData.state = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16) | (buffer[4] << 24);     
+      if(lineData.state != 0b111111111111111111){
+        Vector_Motion(0,0);  // Stop robot if line detected
       }
     }
   }
+  else{
+    lineData.valid = false;  // checksum error
+  }
 }
 
-void showStart() {
+void readussensor(){
+  // static variables remember their values between calls
+  static float dist_b_f = 0.0f;
+  static float dist_l_f = 0.0f;
+  static float dist_r_f = 0.0f;
+
+  // read raw ADC and convert to cm (or mm depending on your scaling)
+  float dist_b_raw = analogRead(back_us) * 520.0f / 1024.0f;
+  float dist_l_raw = analogRead(left_us) * 520.0f / 1024.0f;
+  float dist_r_raw = analogRead(right_us) * 520.0f / 1024.0f;
+
+  // complementary (low-pass) filtering
+  dist_b_f = alpha * dist_b_f + (1.0f - alpha) * dist_b_raw;
+  dist_l_f = alpha * dist_l_f + (1.0f - alpha) * dist_l_raw;
+  dist_r_f = alpha * dist_r_f + (1.0f - alpha) * dist_r_raw;
+
+  // assign filtered values to struct
+  usData.dist_b = dist_b_f;
+  usData.dist_l = dist_l_f;
+  usData.dist_r = dist_r_f;
+}
+/*
+void showStart(){
   display.clearDisplay();
   display.setTextSize(2);
   display.setCursor(0, 20);
@@ -250,20 +342,52 @@ void showStart() {
   display.display();
 }
 
-void showRunScreen() {
+void showLine(){
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(0, 20);
+  display.println("Line");
+  display.display();
+}
+
+void showEmergency(){
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(0, 20);
+  display.println("Emergency!");
+  display.display();
+}
+
+void showRunScreen(){
   display.clearDisplay();
   display.setTextSize(2);
   display.setCursor(0, 20);
   display.println("Run");
   display.display();
 }
+*/
+void showUS(float dist1, float dist2, float dist3) {
+  display.setTextSize(1);
+  display.setCursor(60, 0);  display.print("d_l ");  display.println(dist1);
+  display.setCursor(60, 15); display.print("d_r");  display.println(dist2);
+  display.setCursor(60, 30); display.print("d_b "); display.println(dist3);
+  display.display();
+}
 
-void showSensors(float gyro, int ball, int light) {
+void showMessage(const char* message, int textSize = 2, int x = 0, int y = 20){
+  display.clearDisplay();
+  display.setTextSize(textSize);
+  display.setCursor(x, y);
+  display.println(message);
+  display.display();
+}
+
+void showSensors(float gyro, int ball, int light){
   display.clearDisplay();
   display.setTextSize(1);
-  display.setCursor(0, 0);  display.print("Gyro: ");  display.println(gyro);
-  display.setCursor(0, 15); display.print("Ball: ");  display.println(ball);
-  display.setCursor(0, 30); display.print("Light: "); display.println(light);
+  display.setCursor(0, 0);  display.print("Gyro:");  display.println(gyro);
+  display.setCursor(0, 15); display.print("Ball:");  display.println(ball);
+  display.setCursor(0, 30); display.print("Light:"); display.println(light);
   display.display();
 }
 
@@ -354,63 +478,74 @@ void RobotIKControl(int8_t vx, int8_t vy, float omega){
   SetMotorSpeed(4, p4);
 }
 
-// ---------------------------------------------
-// --- INTEGRATED MOTION CONTROL FUNCTIONS ---
-// ---------------------------------------------
-
-/**
- * @brief Handles proportional heading control (P-control) and calculates angular velocity (omega).
- * @param Vx Desired X-axis velocity (speed)
- * @param Vy Desired Y-axis velocity (speed)
- */
-void Vector_Motion(float Vx, float Vy) {
-  
-      float omega = 0.0;
-      // 2. Current heading calculation
-      float current_gyro_heading = gyroData.heading;
-      float sensor_heading = 90.0 - current_gyro_heading;
-
-      // 3. Calculate the heading error (e = Target - Current)
-      float e = control.robot_heading - sensor_heading;
-
-      // 4. Calculate the angular velocity (omega) using P-Control
-      if (fabs(e) > control.heading_threshold) {
-          omega = e * control.P_factor;
-      }
-      RobotIKControl((int8_t)Vx, (int8_t)Vy, omega);
+void Vector_Motion(float Vx, float Vy){  
+  float omega = 0.0;
+  float current_gyro_heading = gyroData.heading;
+  float sensor_heading = 90.0 - current_gyro_heading;
+  float e = control.robot_heading - sensor_heading;
+  if(fabs(e) > control.heading_threshold){
+      omega = e * control.P_factor;
+  }
+  RobotIKControl((int8_t)Vx, (int8_t)Vy, omega);
 }
 
-/**
- * @brief Moves the robot at a specified angle and speed using P-control for heading.
- * @param moving_degree The desired direction of travel (0-360 degrees).
- * @param speed The desired linear speed magnitude (-100 to 100).
- * @return true if motion control was initiated, false if degree was out of range.
- */
-void Degree_Motion(float moving_degree, int8_t speed) {
-    // 1. Check for valid degree range (0 to 360)
-    if (moving_degree > 360.0 || moving_degree < 0.0) {
-        MotorStop();
-    }
-
-    // 2. Convert angle from degrees to radians
-    float moving_degree_rad = moving_degree * DtoR_const;
-
-    // 3. Calculate velocity components (Vx, Vy)
-    float Vx = cos(moving_degree_rad) * speed;
-    float Vy = sin(moving_degree_rad) * speed;
-
-    // 4. Call the Vector_Motion function to handle control
-    Vector_Motion(Vx, Vy);
+void Degree_Motion(float moving_degree, int8_t speed){
+  if(moving_degree > 360.0 || moving_degree < 0.0){
+      MotorStop();
+  }
+  float moving_degree_rad = moving_degree * DtoR_const;
+  float Vx = cos(moving_degree_rad) * speed;
+  float Vy = sin(moving_degree_rad) * speed;
+  Vector_Motion(Vx, Vy);
 }
 
-// NOTE: To make this code run on an Arduino, you must add a setup() and loop() function
-// which will call Robot_Init() and the sensor/motion functions respectively.
 
+void kicker_control(bool kick = false){
+  static uint64_t charge_start = 0;
+  static uint64_t last_charge_done = 0;
+  static bool charging_state = false;
 
-void update_robot_heading(){
-    ;
+  const uint32_t CHARGE_DURATION = 5000;   // ms needed to charge
+  const uint32_t CHARGE_TIMEOUT  = 3000;  // ms before recharging automatically
+
+  uint64_t now = millis();
+
+  // Auto-recharge if too long since last charge
+  if(charging_state && (now - last_charge_done > CHARGE_TIMEOUT)){
+    charging_state = false;
+  }
+
+  // Start charging if not charged and not already charging
+  if(!charging_state && charge_start == 0){
+    charge_start = now;
+    //Serial.println("Charge");
+    digitalWrite(Charge_Pin, HIGH);
+    digitalWrite(Kicker_Pin, LOW);
+  }
+
+  // Stop charging when duration is met
+  if(charge_start != 0 && (now - charge_start >= CHARGE_DURATION)){
+    digitalWrite(Charge_Pin, LOW);
+    digitalWrite(Kicker_Pin, LOW);
+    //Serial.println("Charge End");
+    charging_state = true;
+    charge_start = 0;
+    last_charge_done = now;
+  }
+
+  // Perform kick if charged
+  if(kick && charging_state){
+    digitalWrite(Kicker_Pin, HIGH);
+    delay(10);
+    digitalWrite(Kicker_Pin, LOW);
+    //delay(10);
+    // After kick, reset to recharge again
+    Serial.println("kick");
+    charging_state = false;
+  }
 }
 
-void kick() {
-    ;
-}
+// INTERRUPT
+void backlstouch(){ backtouch = true; }
+void leftlstouch(){ lefttouch = true; }
+void rightlstouch(){ righttouch = true; }
