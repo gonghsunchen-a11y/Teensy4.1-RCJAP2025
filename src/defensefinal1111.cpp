@@ -142,11 +142,13 @@ void defense(){
         at_right_side = ((usData.dist_r <= Side_limit) && (usData.dist_l > Side_limit - 10));
     }
     else{
-        at_left_side = targetData.x < 100;
-        at_right_side = targetData.x > 220;
+        at_left_side = targetData.x < 100;//camera left side safe
+        at_right_side = targetData.x > 220;//camera right side safe
     }
-    far_away = (usData.dist_b >= Back_safe) | targetData.h < 40;
-    too_close = (usData.dist_b <= Back_limit) | (targetData.h > 45);
+    //targetData.h, increase when close the target, decrease when far from the target
+    far_away = (usData.dist_b >= Back_safe) | (targetData.h < 40);//camera back safe
+    too_close = (usData.dist_b <= Back_limit) | (targetData.h > 45);//camera back limit
+
     Serial.printf("far_away%d\n",far_away);
     Serial.printf("too_close%d\n",too_close);
     bool back_panelty = at_left_side | at_right_side | far_away | too_close;
@@ -335,7 +337,15 @@ void defense(){
             int move_dir = 0;
             float ballDegree = ballDegreelist[ballData.dir];
             if(ballData.dir == 255){
+                //return to middle when ball does not exist
                 move_dir = 0;
+                // add a 40 pixel buffer
+                if(targetData.x < 160 - 30){  //at the left side
+                    move_dir = 1;//move right
+                }
+                else if(targetData.x > 160 + 30){ //at the right side
+                    move_dir = -1;//move left
+                }
             }
             else{
                 if(ballDegree > 95 && ballDegree < 270){
