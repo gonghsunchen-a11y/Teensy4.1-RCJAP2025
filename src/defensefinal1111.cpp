@@ -351,7 +351,7 @@ void defense(){
                 moving_degree = rightDeg;
             }
             //moving_degree = (abs(moving_degree - 270)<10) ? -1 : moving_degree;
-            if(calibrate_ratio > 0.65){
+            if(calibrate_ratio > 0.65){//調大減少晃動，調少跟絲滑
                 control.vx = calibrate_vx;
                 control.vy = calibrate_vy;
             }
