@@ -254,7 +254,7 @@ void defense(){
         }
         //white_line_processing();
     }
-    else if(far_away && (at_left_side || at_right_side) && online){
+    else if(/*far_away */&& (at_left_side || at_right_side) && online){
         Serial.printf("whiteLineProcessing\n");
         white_line_processing();
     }
@@ -331,12 +331,23 @@ void defense(){
                 calibrate_vx = calibrate_speed * cos(temp);
                 calibrate_vy = calibrate_speed * sin(temp);
             }
-            
+            int left_limit = 110;
+            int right_limit = 228;
+            int middle = (left_limit+right_limit) * 0.5;
+            float left_slow_ratio = targetData.valid && targetData.x < middle ? 1 - abs(targetData.x - middle) / 160.0: 1;
+            float right_slow_ratio = targetData.valid && targetData.x > middle ? 1 - abs(targetData.x - middle) / 160.0 : 1;
+
             //moving
             int move_dir = 0;
             float ballDegree = ballDegreelist[ballData.dir];
             if(ballData.dir == 255){
                 move_dir = 0;
+                if(left_slow_ratio != 1){
+                    move_dir = 1;
+                }
+                if(right_slow_ratio != 1){
+                    move_dir = -1;
+                }
             }
             else{
                 if(ballDegree > 95 && ballDegree < 270){
@@ -378,7 +389,6 @@ void defense(){
                     control.vy = MAX_V; 
                 }
             }
-            
             if(usData.dist_b > Back_limit + 5){//close to the back wall
                 Serial.println("slighty close to the back wall");
                 control.vy = 15;
@@ -388,14 +398,6 @@ void defense(){
                 //control.vy = MAX_VY * ((Back_limit - usData.dist_b) / Back_limit);
                 control.vy = 40;
             }
-            //float left_slow_ratio = (usData.dist_l - Side_safe) > 0 ? (usData.dist_l - Side_safe)/Side_safe: 0.5;
-            //float right_slow_ratio =(usData.dist_r - Side_safe) > 0 ? (usData.dist_r - Side_safe)/Side_safe: 0.5;
-            int left_limit = 110;
-            int right_limit = 228;
-            int middle = (left_limit+right_limit) * 0.5;
-            float left_slow_ratio = targetData.valid && targetData.x < middle ? 1 - abs(targetData.x - middle) / 160.0: 1;
-            float right_slow_ratio = targetData.valid && targetData.x > middle ? 1 - abs(targetData.x - middle) / 160.0 : 1;
-
             if(control.vx > 0){
                 control.vx *= right_slow_ratio * 0.9;
                 Serial.printf("right_slow_ratio = %f\n", right_slow_ratio);
