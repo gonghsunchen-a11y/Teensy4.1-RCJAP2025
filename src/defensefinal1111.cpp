@@ -25,7 +25,7 @@ bool overhalf = false;
 bool first_detect = false;
 
 int left_limit = 110;
-int right_limit = 228;
+int right_limit = 230;
 int middle = (left_limit+right_limit) * 0.5;
 
 //CAMERA
@@ -122,7 +122,7 @@ void defense(){
     readCameraData();
     Serial.printf( "targetData.x=%d\n", targetData.x);
     Serial.printf( "targetData.h=%d\n", targetData.h);
-    bool online = lineData.state != 0x3FFFF;
+    bool online = lineData.state != 0x3FFFF; //沒碰到綫
     Serial.printf("online%d\n", online);
     //Serial.printf("ballData.dir%d\n", ballData.dir);
     Serial.printf("usData.dist_b=%d\n", usData.dist_b);
@@ -137,55 +137,53 @@ void defense(){
     bool at_right_side = false;
     bool far_away = false;
     bool too_close = false;
-    if(!targetData.valid){
-        at_left_side = ((usData.dist_r > Side_limit - 10) && (usData.dist_l <= Side_limit));
-        at_right_side = ((usData.dist_r <= Side_limit) && (usData.dist_l > Side_limit - 10));
+    if(!targetData.valid){ //相機數值無效
+        at_left_side = ((usData.dist_r > Side_limit - 10) && (usData.dist_l <= Side_limit));//右邊距離大於side limit跟左邊距離小於等於side limit， true
+        at_right_side = ((usData.dist_r <= Side_limit) && (usData.dist_l > Side_limit - 10));//右邊距離小於等於side limit 跟左邊距離大於side limit， true
     }
     else{
-        at_left_side = targetData.x < 100;//camera left side safe
-        at_right_side = targetData.x > 220;//camera right side safe
+        at_left_side = targetData.x < 140;//相機數值
+        at_right_side = targetData.x > 180;
     }
-    //targetData.h, increase when close the target, decrease when far from the target
-    far_away = (usData.dist_b >= Back_safe) | (targetData.h < 40);//camera back safe
-    too_close = (usData.dist_b <= Back_limit) | (targetData.h > 45);//camera back limit
-
-    Serial.printf("far_away%d\n",far_away);
+    far_away = (usData.dist_b >= Back_safe) | targetData.h < 40;//h 是height
+    too_close = (usData.dist_b <= Back_limit) | (targetData.h > 45 && targetData.h <= 320);
+    Serial.printf("far_away%d\n",far_away);     
     Serial.printf("too_close%d\n",too_close);
-    bool back_panelty = at_left_side | at_right_side | far_away | too_close;
+    bool back_panelty = at_left_side | at_right_side | far_away | too_close; //以上四個有成立back panelty  就會啓動
     bool unknown_ver = (far_away & too_close);
     bool unknown_hor = (at_left_side & at_right_side);
 
     control.vx = 0;
     control.vy = 0;
-    if(back_panelty&&!online){
+    if(back_panelty&&!online){ //4個狀況跟沒碰到綫 成立的話
         if(ballData.dir == 255){//out of panelty area and no ball, need to move back
             //float move_back_degree = -1;
             if(at_left_side){//left corner
-                control.vx = (MAX_VX * 0.5);
+                control.vx = (MAX_VX * 0.5);//右移
                 Serial.println("left_corner");
             }
             else if(at_right_side){//right corner
                 control.vx = -(MAX_VX * 0.5);
-                Serial.println("right_corner");
+                Serial.println("right_corner");//左移
             }
             //close to the back wall
             if(too_close){
                 //control.vy = (Back_limit - usData.dist_b) * (MAX_V);
                 control.vy = 25;
-                control.vy = constrain(control.vy, -MAX_V, MAX_V);
+                control.vy = constrain(control.vy, -MAX_V, MAX_V);//往前
                 Serial.println("close to the back wall");
             }
             if(far_away){
                 Serial.println("far_away");
-                if(usData.dist_l - usData.dist_r > 80){//left side
+                if(usData.dist_l - usData.dist_r > 80){//right side
                     //move_back_degree = 315;
-                    control.vx = MAX_VX;
+                    control.vx = -MAX_VX; 
                 }
-                else if(usData.dist_r - usData.dist_l > 80){
-                    control.vx = -MAX_VX;
+                else if(usData.dist_r - usData.dist_l > 80){//左邊 
+                    control.vx = MAX_VX;
                     //move_back_degree = 225;
                 }
-                control.vy = -30;
+                control.vy = -30;//往後
                 Serial.printf("back_speed:%d\n", control.vy);
                 control.vy = constrain(control.vy, -MAX_V, MAX_V);
             }
@@ -257,6 +255,7 @@ void defense(){
         //white_line_processing();
     }
     else if(far_away && (at_left_side || at_right_side) && online){
+        Serial.printf("whiteLineProcessing\n");
         white_line_processing();
     }
     else{
@@ -337,15 +336,7 @@ void defense(){
             int move_dir = 0;
             float ballDegree = ballDegreelist[ballData.dir];
             if(ballData.dir == 255){
-                //return to middle when ball does not exist
                 move_dir = 0;
-                // add a 40 pixel buffer
-                if(targetData.x < 160 - 30){  //at the left side
-                    move_dir = 1;//move right
-                }
-                else if(targetData.x > 160 + 30){ //at the right side
-                    move_dir = -1;//move left
-                }
             }
             else{
                 if(ballDegree > 95 && ballDegree < 270){
@@ -389,18 +380,13 @@ void defense(){
             }
             
             if(usData.dist_b > Back_limit + 5){//close to the back wall
-                Serial.println("ver1");
-                //control.vx = 0;
-                /*
-                control.vy = ((usData.dist_b-Back_limit) / 3) * control.vy;
-                if(ballDegree < 180){
-                    control.vy = MAX_V; 
-                }*/
+                Serial.println("slighty close to the back wall");
+                control.vy = 15;
             }
-            if(usData.dist_b <= Back_limit){//nearly touch the back wall
-                Serial.println("ver2");
+            if(too_close){//nearly touch the back wall
+                Serial.println("when track the ball");
                 //control.vy = MAX_VY * ((Back_limit - usData.dist_b) / Back_limit);
-                control.vy = 20;
+                control.vy = 40;
             }
             //float left_slow_ratio = (usData.dist_l - Side_safe) > 0 ? (usData.dist_l - Side_safe)/Side_safe: 0.5;
             //float right_slow_ratio =(usData.dist_r - Side_safe) > 0 ? (usData.dist_r - Side_safe)/Side_safe: 0.5;
@@ -417,16 +403,6 @@ void defense(){
             if(control.vx < 0){
                 control.vx *= left_slow_ratio * 0.9;
                 Serial.printf("left_slow_ratio = %f\n", left_slow_ratio);
-            }
-            if(usData.dist_l <= Back_limit){//nearly touch the back wall
-                Serial.println("ver2");
-                //control.vy = MAX_VY * ((Back_limit - usData.dist_b) / Back_limit);
-                control.vy = 20;
-            } 
-            if(usData.dist_l <= Back_limit){//nearly touch the back wall
-                Serial.println("ver2");
-                //control.vy = MAX_VY * ((Back_limit - usData.dist_b) / Back_limit);
-                control.vy = 20;
             }
             Serial.printf("left_degree = %f\n", leftDeg);
             Serial.printf("right_degree = %f\n", rightDeg);

@@ -20,8 +20,8 @@
 #define MAX_VY 40
 #define Def_offset 2.5
 #define Back_safe 40//cm far away from the wall
-#define Side_safe 45//cm 
-#define Back_limit 10 //too near
+#define Side_safe 50//cm 
+#define Back_limit 20//too near
 #define Side_limit 45 
 
 // --- MATH CONSTANTS & CONTROL PARAMETERS ---
@@ -122,6 +122,7 @@ void RobotIKControl(int8_t vx, int8_t vy, float omega);
 void Vector_Motion(float Vx, float Vy);
 void Degree_Motion(float moving_degree, int8_t speed);
 void kicker_control(bool);
+//bool white_line_processing();
 void backlstouch();
 void leftlstouch();
 void rightlstouch();
