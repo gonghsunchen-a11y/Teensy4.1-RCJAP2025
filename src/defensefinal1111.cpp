@@ -123,6 +123,7 @@ void defense(){
     Serial.printf( "targetData.x=%d\n", targetData.x);
     Serial.printf( "targetData.h=%d\n", targetData.h);
     bool online = lineData.state != 0x3FFFF; //沒碰到綫
+    static int counter = 0;
     Serial.printf("online%d\n", online);
     //Serial.printf("ballData.dir%d\n", ballData.dir);
     Serial.printf("usData.dist_b=%d\n", usData.dist_b);
@@ -137,6 +138,8 @@ void defense(){
     bool at_right_side = false;
     bool far_away = false;
     bool too_close = false;
+    bool right_ls_touch = (SENSE(0) | SENSE(1) | SENSE(2) | SENSE(3) | SENSE(17) | SENSE(16) | SENSE(15) | SENSE(14));
+    bool left_ls_touch =  (SENSE(5) | SENSE(6) | SENSE(7) | SENSE(8) | SENSE(9) | SENSE(10) | SENSE(11) | SENSE(12));
     if(!targetData.valid){ //相機數值無效
         at_left_side = ((usData.dist_r > Side_limit - 10) && (usData.dist_l <= Side_limit));//右邊距離大於side limit跟左邊距離小於等於side limit， true
         at_right_side = ((usData.dist_r <= Side_limit) && (usData.dist_l > Side_limit - 10));//右邊距離小於等於side limit 跟左邊距離大於side limit， true
@@ -155,6 +158,15 @@ void defense(){
 
     control.vx = 0;
     control.vy = 0;
+    
+    if(at_left_side && left_ls_touch){//if at the left side but touch the  left side line, back to the filed
+        white_line_processing();
+    }
+    
+    if(at_right_side && right_ls_touch){//if at the right side but still touch the right side line, back to the filed
+        white_line_processing();
+    }
+
     if(back_panelty&&!online){ //4個狀況跟沒碰到綫 成立的話
         if(ballData.dir == 255){//out of panelty area and no ball, need to move back
             //float move_back_degree = -1;
@@ -188,8 +200,8 @@ void defense(){
                 control.vy = constrain(control.vy, -MAX_V, MAX_V);
             }
         }
-        else{
-            float back_degree = -1;
+        else{//有球
+            float back_degree = -1;//回廠的移動方向
             float ballDegree = ballDegreelist[ballData.dir];
             //float ballspeed = map(ballData.dis, 0, 12, 20, MAX_V);
 
@@ -204,13 +216,14 @@ void defense(){
                 Serial.println("far_away");
                 if(at_left_side){//left corner
                     back_degree = 315;
+                    //一開始在左前方，往右后，球在右後 先往後才不會撞到球
                     if(ballDegree > 270){//right side of the robot
                         back_degree = 270; 
                     }
                     Serial.println("left_corner");
                 }
                 else if(at_right_side){//right corner
-                    back_degree = 225;
+                    back_degree = 225;//因爲在right side，所以往右後，往後才不會撞到球
                     if(ballDegree < 270 && ballDegree >180){//left side of the robot
                         back_degree = 270;
                     }
@@ -219,16 +232,16 @@ void defense(){
                 else{
                     back_degree = 270;
                     if(ballDegree > 270){//right side of the robot
-                        back_degree = 225; 
+                        back_degree = 225; //球在後面 不能直接倒退，會撞到球，繞過去
                     }
                     else if(ballDegree < 270 && ballDegree >180){//left side of the robot
-                        back_degree = 315;
+                        back_degree = 315;//球在左後，車子往右后繞不會撞到
                     }
                 }
             }
             else{
                 if(at_left_side){//left corner
-                    back_degree = 0;
+                    back_degree = 0;//球在右上或下，緩慢網右上移不會撞到球
                     if(ballDegree > 270 || back_degree < 90){//right side of the robot
                         speed_ratio = 0.25;
                         back_degree = 45;
@@ -236,8 +249,8 @@ void defense(){
                     Serial.println("left_corner");
                 }
                 else if(at_right_side){//right corner
-                    back_degree = 180;
-                    if(ballDegree > 180 && ballDegree < 270){//left side of the robot
+                    back_degree = 180;//球在左往左前不會撞到球
+                    if(ballDegree > 90 && ballDegree < 270){//left side of the robot
                         speed_ratio = 0.25;
                         back_degree = 135;
                     }
@@ -253,10 +266,6 @@ void defense(){
             }
         }
         //white_line_processing();
-    }
-    else if(/*far_away */&& (at_left_side || at_right_side) && online){
-        Serial.printf("whiteLineProcessing\n");
-        white_line_processing();
     }
     else{
         Serial.println("defense");
@@ -321,7 +330,7 @@ void defense(){
             if(rightDeg < 90 && (leftDeg > 180 && leftDeg < 270)){
                 calibrate_angle = 315;
             }
-            if(rightDeg > 270 && (leftDeg < 180 && leftDeg > 270)){
+            if(rightDeg > 270 && (leftDeg < 180 && leftDeg > 90)){
                 calibrate_angle = 225;
             }
             float calibrate_vx = 0;
@@ -352,9 +361,14 @@ void defense(){
             else{
                 if(ballDegree > 95 && ballDegree < 270){
                     move_dir = -1;
+                    counter = 0;
                 }
                 else if (ballDegree < 85 || ballDegree > 270){
                     move_dir = 1;
+                    counter = 0;
+                }
+                else{
+                    counter ++;
                 }
             }
             Serial.printf("move_dir%d\n", move_dir);
@@ -384,9 +398,9 @@ void defense(){
             }
             if(vertical_line){//on the side line, line pattern = vertical
                 Serial.println("ver");
-                control.vy = (control.vy < 0) ? control.vy * 0.5: control.vy;
+                control.vy = (control.vy < 0) ? control.vy * 0.5: control.vy;// 在綫上不能往後 降速不然就不動
                 if(ballDegree < 180){
-                    control.vy = MAX_V; 
+                    control.vy = MAX_V; //小於180就是往前走
                 }
             }
             if(usData.dist_b > Back_limit + 5){//close to the back wall

@@ -90,7 +90,7 @@ struct USSensor{uint16_t dist_b = 0; uint16_t dist_l = 0; uint16_t dist_r = 0; }
 struct CamData{uint16_t x = 65535;uint16_t y = 65535;uint16_t w = 65535;uint16_t h = 65535; bool valid = false;} targetData;
 
 float ballDegreelist[16]={22.5,45,67.5,87.5,92.5,112.5,135,157.5,202.5,225,247.5,265,275,292.5,315,337.5};
-float linesensorDegreelist[18]={10,30,50,70,90,110,130,150,170,190,210,230,250,270,290,310,330};
+float linesensorDegreelist[18]={10,30,50,70,90,110,130,150,170,190,210,230,250,270,290,310,330,350};
 int8_t linesensor_ver_cor[18]={1,2,3,4,5,4,3,2,1,-1,-2,-3,-4,-5,-4,-3,-2,-1};
 
 // --- ROBOT CONTROL STRUCT (New: For P-control state) ---
