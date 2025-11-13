@@ -369,6 +369,9 @@ void defense(){
                 }
                 else{
                     counter ++;
+                    if(counter > 5000){// attack if ball infront the ball 
+                        control.vy = 30;
+                    }
                 }
             }
             Serial.printf("move_dir%d\n", move_dir);
